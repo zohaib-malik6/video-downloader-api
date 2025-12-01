@@ -8,7 +8,7 @@ app = FastAPI()
 @app.get("/download")
 def download_video(url: str):
     try:
-        # --- TIKTOK LOGIC (TikWM - Only HD available usually) ---
+        # --- TIKTOK LOGIC ---
         if "tiktok.com" in url:
             try:
                 response = requests.post("https://www.tikwm.com/api/", data={"url": url})
@@ -20,14 +20,17 @@ def download_video(url: str):
                         "title": video_data.get("title", "TikTok Video"),
                         "thumbnail": video_data.get("cover", ""),
                         "qualities": [
-                            {"label": "HD (No Watermark)", "url": video_data.get("play", "")},
-                            {"label": "Watermark Version", "url": video_data.get("wmplay", "")}
+                            {
+                                "label": "HD (With Sound)", 
+                                "url": video_data.get("play", ""),
+                                "headers": {"User-Agent": "Mozilla/5.0"}
+                            }
                         ]
                     }
             except:
-                pass # Fallback to yt-dlp if TikWM fails
+                pass
 
-        # --- FB / INSTA LOGIC (yt-dlp) ---
+        # --- FB / INSTA LOGIC ---
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -40,38 +43,42 @@ def download_video(url: str):
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            
-            # Formats nikalna
             formats = info.get('formats', [])
             available_qualities = []
             
-            # Sirf MP4 aur Video+Audio wale formats filter karna
+            real_headers = info.get('http_headers', {})
+
             for f in formats:
-                # Check agar video URL hai aur ext mp4 hai
-                if f.get('url') and f.get('ext') == 'mp4':
+                # CHECK: Video (mp4) HONA CHAHIYE + Audio (acodec) HONA CHAHIYE
+                if f.get('ext') == 'mp4' and f.get('acodec') != 'none' and f.get('vcodec') != 'none':
                     height = f.get('height')
                     if height:
                         label = f"{height}p"
-                        # Duplicate hatane ka simple check
+                        # Duplicate hatana
                         if not any(q['label'] == label for q in available_qualities):
                             available_qualities.append({
                                 "label": label,
-                                "url": f['url']
+                                "url": f['url'],
+                                "headers": real_headers
                             })
             
-            # Agar formats empty hain, toh direct url use karein (Backup)
+            # Agar filter ke baad kuch na bache, toh Best Combined uthao
             if not available_qualities:
                 direct_url = info.get('url') or info['requested_downloads'][0]['url']
-                available_qualities.append({"label": "Best Quality", "url": direct_url})
+                available_qualities.append({
+                    "label": "Standard Quality", 
+                    "url": direct_url,
+                    "headers": real_headers
+                })
 
-            # Sort karein (High to Low quality)
+            # High Quality upar rakho
             available_qualities.sort(key=lambda x: int(x['label'].replace('p', '')) if 'p' in x['label'] else 0, reverse=True)
 
             return {
                 "status": "success",
                 "title": info.get('title', 'Social Video'),
                 "thumbnail": info.get('thumbnail', None),
-                "qualities": available_qualities # List bhej rahe hain ab
+                "qualities": available_qualities
             }
 
     except Exception as e:
