@@ -1,47 +1,64 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 import yt_dlp
 import os
+import requests  # Nayi library TikTok ke liye
 
 app = FastAPI()
 
 @app.get("/")
 def home():
-    return {"message": "All-in-One Video Downloader API Running"}
+    return {"message": "Universal Video Downloader API is Running"}
 
 @app.get("/download")
 def download_video(url: str):
     try:
-        # Default Settings
+        # -----------------------------------------------
+        # LOGIC 1: AGAR TIKTOK HAI TOH "TikWM" USE KARO
+        # -----------------------------------------------
+        if "tiktok.com" in url:
+            try:
+                # TikWM Free API call
+                response = requests.post("https://www.tikwm.com/api/", data={"url": url})
+                data = response.json()
+                
+                if data.get("code") == 0:  # 0 ka matlab Success
+                    video_data = data["data"]
+                    return {
+                        "status": "success",
+                        "title": video_data.get("title", "TikTok Video"),
+                        "thumbnail": video_data.get("cover", ""),
+                        "download_url": video_data.get("play", ""),  # Direct Video Link (No Watermark)
+                        "source": "TikWM"
+                    }
+                else:
+                    return {"status": "error", "message": "TikTok API Failed"}
+            except Exception as e:
+                return {"status": "error", "message": f"TikTok Error: {str(e)}"}
+
+        # -----------------------------------------------
+        # LOGIC 2: AGAR FB/INSTA HAI TOH "yt-dlp" USE KARO
+        # -----------------------------------------------
+        
+        # Cookies check
         ydl_opts = {
             'format': 'best',
             'quiet': True,
             'no_warnings': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
 
-        # --- LOGIC: TikTok vs Others ---
-        
-        if "tiktok.com" in url:
-            # TikTok ke liye: Cookies MAT use karein, lekin Mobile User Agent lagayein
-            # Kyunki TikTok server IPs ko jaldi block karta hai agar desktop agent ho
-            ydl_opts['user_agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'
-        
-        else:
-            # Facebook/Instagram ke liye: Cookies Zaroori hain
-            cookie_file = "cookies.txt"
-            if os.path.exists(cookie_file):
-                ydl_opts['cookiefile'] = cookie_file
-            
-            # Inke liye Desktop Agent use karein
-            ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        # Sirf FB/Insta ke liye cookies lagayen
+        cookie_file = "cookies.txt"
+        if os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
 
-        # --- DOWNLOAD PROCESS ---
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             
-            # TikTok kabhi kabhi direct URL nahi deta, format check karna padta hai
+            # Direct URL nikalna
             video_url = info.get('url', None)
             
-            # Agar direct URL na mile toh requested_downloads check karein
+            # Agar direct URL na mile (kabhi kabhi format alag hota hai)
             if not video_url and 'requested_downloads' in info:
                 video_url = info['requested_downloads'][0]['url']
 
@@ -49,9 +66,9 @@ def download_video(url: str):
                 "status": "success",
                 "title": info.get('title', 'Social Video'),
                 "thumbnail": info.get('thumbnail', None),
-                "download_url": video_url
+                "download_url": video_url,
+                "source": "yt-dlp"
             }
 
     except Exception as e:
-        # Error log return karein taaki hum debug kar sakein
         return {"status": "error", "message": str(e)}
