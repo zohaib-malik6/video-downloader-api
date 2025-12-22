@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse  # <--- NEW IMPORT
+from fastapi.responses import StreamingResponse
+from urllib.parse import quote  # <--- 1. YEH IMPORT ADD KAREIN
 import yt_dlp
 import os
 import requests
@@ -19,47 +20,38 @@ app.add_middleware(
 def home():
     return {"message": "API is running!"}
 
-# --- NEW PROXY ENDPOINT FOR DOWNLOADING ---
+# --- UPDATED STREAM ENDPOINT (Encoding Fix) ---
 @app.get("/stream")
 def stream_video(url: str, title: str = "video"):
     try:
-        # Request headers to mimic a browser (Avoids 403 Forbidden)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
         
-        # External URL se stream connect karein
         external_req = requests.get(url, stream=True, headers=headers)
         
-        # Generator function jo data chunks mein bhejega
         def iterfile():
             for chunk in external_req.iter_content(chunk_size=8192):
                 if chunk:
                     yield chunk
 
-        # Browser ko batana ke ye attachment (File) hai
-        clean_title = "".join(x for x in title if x.isalnum() or x in " -_") # File name clean karein
+        # --- 2. YAHAN CHANGE KIYA HAI (Latin-1 Fix) ---
+        # Filename ko safe banaya taake Emojis/Urdu se crash na ho
+        # Hum 'quote' use kar rahe hain jo special chars ko %20 type mein convert krdega
+        
+        safe_filename = quote(f"{title}.mp4") 
+        
         return StreamingResponse(
             iterfile(),
             media_type="video/mp4",
-            headers={"Content-Disposition": f'attachment; filename="{clean_title}.mp4"'}
+            # filename* use karne se browser UTF-8 (Urdu/Emojis) samajh jata hai
+            headers={"Content-Disposition": f"attachment; filename*=utf-8''{safe_filename}"}
         )
     except Exception as e:
         return {"error": str(e)}
 
 @app.get("/download")
 def download_video(url: str):
-    # ... (Aapka purana download logic wese hi rahega) ...
-    # Sirf neechay return mein aik choti change karni hai agar chaho
-    # Lekin filhal purana logic theek hai, hum frontend se control karein ge.
-    
-    # ... (Keep your existing download_video code same as before) ...
-    # Main yahan repeat nahi kar raha taake confusion na ho.
-    # Jo pichle step mein main.py diya tha wahi rakhein.
-    
-    # Bas upar wala 'stream_video' function add karna zaroori hai.
-    
-    # (Agar aap chahte hain main pura main.py dobara likh dun tu bata dein)
     try:
         # --- TIKTOK LOGIC ---
         if "tiktok.com" in url:
