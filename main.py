@@ -1,16 +1,15 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware  # <-- IMPORT THIS
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse  # <--- NEW IMPORT
 import yt_dlp
 import os
 import requests
 
 app = FastAPI()
 
-# --- CORS SETTINGS (BOHT ZAROORI HAI) ---
-# Iske baghair React app API se baat nahi kar payega
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Filhal sab allow kar rahe hain (Production mein apni site ka link dein)
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -20,8 +19,47 @@ app.add_middleware(
 def home():
     return {"message": "API is running!"}
 
+# --- NEW PROXY ENDPOINT FOR DOWNLOADING ---
+@app.get("/stream")
+def stream_video(url: str, title: str = "video"):
+    try:
+        # Request headers to mimic a browser (Avoids 403 Forbidden)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        
+        # External URL se stream connect karein
+        external_req = requests.get(url, stream=True, headers=headers)
+        
+        # Generator function jo data chunks mein bhejega
+        def iterfile():
+            for chunk in external_req.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        # Browser ko batana ke ye attachment (File) hai
+        clean_title = "".join(x for x in title if x.isalnum() or x in " -_") # File name clean karein
+        return StreamingResponse(
+            iterfile(),
+            media_type="video/mp4",
+            headers={"Content-Disposition": f'attachment; filename="{clean_title}.mp4"'}
+        )
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/download")
 def download_video(url: str):
+    # ... (Aapka purana download logic wese hi rahega) ...
+    # Sirf neechay return mein aik choti change karni hai agar chaho
+    # Lekin filhal purana logic theek hai, hum frontend se control karein ge.
+    
+    # ... (Keep your existing download_video code same as before) ...
+    # Main yahan repeat nahi kar raha taake confusion na ho.
+    # Jo pichle step mein main.py diya tha wahi rakhein.
+    
+    # Bas upar wala 'stream_video' function add karna zaroori hai.
+    
+    # (Agar aap chahte hain main pura main.py dobara likh dun tu bata dein)
     try:
         # --- TIKTOK LOGIC ---
         if "tiktok.com" in url:
@@ -74,17 +112,13 @@ def download_video(url: str):
             formats = info.get('formats', [info]) 
             available_qualities = []
             
-            # Simple Logic for Frontend
             for f in formats:
-                # Video with Sound (mp4)
                 if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none':
                     height = f.get('height')
                     if not height: height = f.get('width', 0)
                     label = f"{height}p" if height else "Standard"
                     
-                    # Avoid m3u8 for direct download buttons if possible
                     if 'm3u8' not in f['url']:
-                        # Duplicate check
                         if not any(q['label'] == label for q in available_qualities):
                             available_qualities.append({
                                 "label": label,
@@ -92,7 +126,6 @@ def download_video(url: str):
                                 "size": "MP4"
                             })
             
-            # Fallback
             if not available_qualities:
                 direct_url = info.get('url')
                 if direct_url:
@@ -102,7 +135,6 @@ def download_video(url: str):
                         "size": "Source"
                     })
 
-            # Sort High to Low
             available_qualities.sort(
                 key=lambda x: int(x['label'].replace('p', '')) if 'p' in x['label'] else 0, 
                 reverse=True
